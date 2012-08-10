@@ -4,6 +4,8 @@ import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.io.OutputStreamWriter;
 import java.net.DatagramPacket;
 import java.net.InetAddress;
@@ -13,11 +15,13 @@ import java.net.Socket;
 import java.util.ArrayList;
 
 import android.net.wifi.WifiManager;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.app.Activity;
 import android.app.Dialog;
 import android.content.Context;
 import android.content.Intent;
+import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
@@ -33,7 +37,7 @@ import android.support.v4.app.NavUtils;
 public class MainActivity extends Activity implements Runnable{
 	
 	Button speak,nextWindow,nextField,paste;
-	TextView spokentext;
+	TextView spokentext,statustext;
 	
 	public static final int TAB_COMMAND=0x81;
 	
@@ -51,16 +55,20 @@ public class MainActivity extends Activity implements Runnable{
 
 	Intent speechintent;
 	
+	boolean locker;
+	
 	public static final String echomessage="TeclaShield";
 	
 	public static final String password="android";
 	
-	boolean connectionstatus=false;
+	boolean connectionstatus=false,flag=true;
 	
-	BufferedInputStream in;
-	BufferedOutputStream out;
-	InputStreamReader isr;
-	OutputStreamWriter osw;
+	ObjectInputStream in;
+	ObjectOutputStream out;
+	
+	DatagramPacket pack;
+	
+	byte[] buffer;
 	
 	Object lock;
 	
@@ -82,13 +90,14 @@ public class MainActivity extends Activity implements Runnable{
         paste=(Button)findViewById(R.id.pastebutton);
         
         spokentext=(TextView)findViewById(R.id.SpokenText);
+        statustext=(TextView)findViewById(R.id.statustext);
         
         wifiman=(WifiManager)this.getSystemService(Context.WIFI_SERVICE);
         
         Dictation="";
         
         if(wifiman.isWifiEnabled()){
-        	search_server();
+        	new Connect().execute(0);
         }else{
         	spokentext.setText("Wifi is Disabled. Switch on Wifi first");
         }
@@ -107,6 +116,8 @@ public class MainActivity extends Activity implements Runnable{
 				// TODO Auto-generated method stub
 				if(connectionstatus)
 					send("dictate:"+Dictation);
+				else
+					search_server();
 				
 			}
 		});
@@ -140,53 +151,69 @@ public class MainActivity extends Activity implements Runnable{
     public void connect(){
     	DatagramPacket packet;
     	byte[] buf=new byte[256];
-    	try {
-    		packet=new DatagramPacket(buf,buf.length);
+    	Log.v("connection","Started");
+    	locker=false;
+    	Thread p=new Thread(this);
+    	p.start();
+    	try{
+    		while(!locker);
     		
-			multisock=new MulticastSocket(PORTNUMBER);
-			
-			multisock.joinGroup(InetAddress.getByName("225.0.0.0"));
-			
-			multisock.receive(packet);
-			
-			if(packet!=null)
-				serveraddress=packet.getAddress();
-			
+    		Log.v("connection","pack in connect="+pack);
+    		
+			if(pack!=null){
+				Log.v("connection",new String(pack.getData()));
+				serveraddress=pack.getAddress();
+				Log.v("connection",""+serveraddress);
+			}
 			buf=echomessage.getBytes();
 			
-			packet=new DatagramPacket(buf,buf.length); 
+			//multisock.leaveGroup(InetAddress.getByName("225.0.0.0"));
 			
-			multisock.send(packet);
+			MulticastSocket multisocksend=new MulticastSocket(PORTNUMBER+1);
 			
-			multisock.setSoTimeout(60000);
+			packet=new DatagramPacket(buf,buf.length,InetAddress.getByName("226.0.0.0"),PORTNUMBER+1); 
 			
-			multisock.receive(packet);
+			multisocksend.setSoTimeout(30000);
 			
-			if(packet.equals("Yes")){
+			for(int i=0;i<8;i++)
+			{
+			multisocksend.send(packet);
+			}
+			
+			Log.v("connection","reached here");
+			
+			
+			
+			flag=false;
+			
+			
+			
+				client=new Socket();
+							
+				client.connect(new InetSocketAddress(serveraddress,PORTNUMBER+2),60000);
 				
-				multisock.close();
+				Log.v("connection","reached here2");
 				
-				client=new Socket(serveraddress,PORTNUMBER);
+				out=new ObjectOutputStream(client.getOutputStream());
+				out.flush();
 				
-				client.setSoTimeout(60000);
-				
-				in=new BufferedInputStream(client.getInputStream());
-				
-				out=new BufferedOutputStream(client.getOutputStream());
-				
-				isr=new InputStreamReader(in,"UTF8");
-				
-				osw=new OutputStreamWriter(out,"UTF8");
 				
 				send(password);
 				
+				
+				in=new ObjectInputStream(client.getInputStream());
+				
+				Log.v("connection",""+out);
+				
 				String result=receive();
 				
+				Log.v("connection",""+result);
 				if(result!=null && result.equals("Success")){
+					Log.v("connection","accepted");
 					connectionstatus=true;
 				}
 				
-			}
+			
 			
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
@@ -199,30 +226,30 @@ public class MainActivity extends Activity implements Runnable{
     public void send(String data){
     	try{
     		
-    		if(out != null &&osw != null )
-    			osw.write(data);
-    		
+    		if(out != null)
+    		{
+    			Log.v("connection","password="+data);
+    			out.writeUTF(data);
+    			out.flush();
+    			
+    		}
     	}catch (IOException e){
-    		
+    		e.printStackTrace();
     	}
     }
     
     public String receive(){
-    	StringBuilder builder=new StringBuilder();
-    	int val;
+    	
     	try{
-    		if(isr !=null && in != null){
-    			val=isr.read();
-    			while(val != -1){
-    				builder.append(val);
-    				val=isr.read();
-    			}
-    		}
+    		String data=in.readUTF();
+    		Log.v("conenction","receiving"+data);
+    		return data;
     	  		
     	}catch (IOException e){
-    		
+    		e.printStackTrace();
+    		return null;
     	}
-    	return builder.toString();
+    	
     }
     
     public boolean connectionstatus(){
@@ -238,10 +265,6 @@ public class MainActivity extends Activity implements Runnable{
     				in.close();				
     			if(out != null)
     				out.close();
-    			if(isr!= null)
-    				isr.close();
-    			if(osw!= null)
-    				osw.close();
     			if(client!=null)
     				client.close();
     			connectionstatus=false;
@@ -260,7 +283,66 @@ public class MainActivity extends Activity implements Runnable{
     
 	public void run() {
 		// TODO Auto-generated method stub
-		connect();
+			DatagramPacket packet;
+			buffer=new byte[256];
+			int count=0;
+			pack =new DatagramPacket(buffer,buffer.length);
+			flag=true;
+			
+		try {
+			
+			
+			multisock=new MulticastSocket(PORTNUMBER);
+			
+			multisock.setSoTimeout(0);			
+			
+			multisock.joinGroup(InetAddress.getByName("225.0.0.0"));
+			
+			buffer=new byte[256];
+			
+			packet=new DatagramPacket(buffer,buffer.length);
+			
+			
+			
+			Log.v("connection","pack="+pack);
+			
+			multisock.receive(packet);
+			
+			pack=new DatagramPacket(packet.getData(),packet.getData().length);
+			pack.setAddress(packet.getAddress());
+			
+			Log.v("connection","pack="+new String(pack.getData()));
+			
+			locker=true;
+		} catch (IOException e1) {
+			// TODO Auto-generated catch block
+			e1.printStackTrace();
+		}
+		
+		
+		while(flag){ 
+			
+			try {
+				buffer=new byte[256];
+				
+				packet=new DatagramPacket(buffer,buffer.length);
+				
+				multisock.receive(packet);
+				
+				pack=new DatagramPacket(packet.getData(),packet.getData().length);
+				
+				pack.setAddress(packet.getAddress());
+				count++;
+				
+				Log.v("connection","count="+count);
+				
+			} catch (IOException e) { 
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+			
+			
+		}
 		
 	}
 	
@@ -315,6 +397,7 @@ public class MainActivity extends Activity implements Runnable{
 					long arg3) {
 				Dictation=list.get((int)arg3);
 				spokentext.setText(Dictation);
+				send("dictate:"+Dictation);
 				chooserdialog.hide();
 			}
 			
@@ -323,4 +406,29 @@ public class MainActivity extends Activity implements Runnable{
 		chooserdialog.show();
 		return dictated;
 	}
+	
+	class Connect extends AsyncTask{
+
+		@Override
+		protected Object doInBackground(Object... arg0) {
+			// TODO Auto-generated method stub
+			connect();
+			return arg0[0];
+		}
+		
+		protected void onProgressUpdate(String text) {
+	         
+	     }
+		
+		protected void onPostExecute(Object arg) {
+			if(serveraddress!=null)
+	         statustext.setText(serveraddress.toString());
+	     }
+		
+		
+	};
+	
+	
+	
+	
 }

@@ -47,5 +47,12 @@
         android:layout_below="@id/nextbutton"
         android:layout_centerHorizontal="true"
         />
-
+	<TextView 
+	    android:text="Connection Status"
+        android:id="@+id/statustext"
+        android:layout_width="fill_parent"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/pastebutton"
+        android:layout_centerHorizontal="true"
+	    />
 </RelativeLayout>
